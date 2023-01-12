@@ -155,3 +155,99 @@ server {
  sudo systemctl restart nginx 
 ```
 * Now our jenkins running on asecure connection with nginx .
+
+
+# Process - 2
+* Setup the Jenkins.
+## Step 1 - Configuring Nginx
+```bash
+sudo apt-get update
+
+sudo apt-get install nginx
+
+```
+## Step 2 - Getting a Certificate
+* After that, you will need to purchase or create an SSL certificate. The commands we are showing are for self-signed certificates, to avoid any browser warnings you should get a signed certificate.
+
+* Next, move into the proper directory and generate a certificate:
+```bash
+ cd /etc/nginx
+
+ sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout /etc/nginx/cert.key -out /etc/nginx/cert.crt
+
+```
+* You will now be asked to enter some information about the certificate. You can fill this out however you wish, just keep in mind that the information will be visible in the certificate properties. You will be setting the number of bits to 2048 since that is the minimum needed to get it signed by a CA. If you wish to get the certificate signed, you will need to create a CSR.
+## Step 3 - Editing the Configuration
+* After that, you will need to edit the default Nginx configuration file:
+```bash
+ sudo nano /etc/nginx/sites-enabled/default
+
+```
+* You will get a final configuration as follows. You can also update or replace the existing config file, although you may want to first make a quick copy:
+```bash
+ server {
+    listen 80;
+    return 301 https://$host$request_uri;
+}
+
+server {
+
+    listen 443;
+    server_name jenkins.domain.com;
+
+    ssl_certificate           /etc/nginx/cert.crt;
+    ssl_certificate_key       /etc/nginx/cert.key;
+
+    ssl on;
+    ssl_session_cache  builtin:1000  shared:SSL:10m;
+    ssl_protocols  TLSv1 TLSv1.1 TLSv1.2;
+    ssl_ciphers HIGH:!aNULL:!eNULL:!EXPORT:!CAMELLIA:!DES:!MD5:!PSK:!RC4;
+    ssl_prefer_server_ciphers on;
+
+    access_log            /var/log/nginx/jenkins.access.log;
+
+    location / {
+
+      proxy_set_header        Host $host;
+      proxy_set_header        X-Real-IP $remote_addr;
+      proxy_set_header        X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header        X-Forwarded-Proto $scheme;
+
+      # Fix the “It appears that your reverse proxy set up is broken" error.
+      proxy_pass          http://localhost:8080;
+      proxy_read_timeout  90;
+
+      proxy_redirect      http://localhost:8080 https://jenkins.domain.com;
+    }
+  }
+```
+* In your configuration, the cert.crtand cert.key settings reflect the location where you have created your SSL certificate. You will need to update the servername and proxyredirect lines with your own domain name.
+## Step 4 - Configuring Jenkins
+* For Jenkins to work with Nginx, you need to update the Jenkins config to listen only on the localhost interface instead of all (0.0.0.0), to ensure traffic gets handled properly. This is a crucial step because if Jenkins is still listening on all interfaces, then it will still potentially be accessible via its original port (8080). We will edit the /etc/default/jenkins configuration file to make these adjustments.
+```bash
+ sudo nano /etc/default/jenkins
+
+```
+* After that, locate the JENKINS\_ARGS line and update it to look something like this:
+```bash
+ JENKINS_ARGS="--webroot=/var/cache/jenkins/war --httpListenAddress=127.0.0.1 --httpPort=$HTTP_PORT -ajp13Port=$AJP_PORT"
+
+```
+* After that, go ahead and restart Jenkins and Nginx :
+```bash
+ sudo service jenkins restart
+
+ sudo service nginx restart
+
+```
+* And you will get an error in manage jenkins dashboard like this :
+![image](https://user-images.githubusercontent.com/98937778/211993018-4a177306-7675-45a4-8603-256f4dde2283.png)
+
+* Jenkins -> Manage Jenkins -> Configure System -> Jenkins Location
+
+* After that, update the Jenkins URL to use HTTPS - https://jenkins.domain.com/
+
+* As a next step, update your OAuth settings with the external provider. This example is for GitHub. On GitHub, you can find it under Settings -> Applications -> Developer applications, on the GitHub site.
+![image](https://user-images.githubusercontent.com/98937778/211993425-1e773f09-78fa-47dc-9447-2be9e2bd0b21.png)
+
+## Thats it !
